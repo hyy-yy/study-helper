@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readFile, writeFile } from 'fs/promises';
-import { join } from 'path';
+import { supabase } from '@/lib/supabase';
 
 export async function GET(
   request: NextRequest,
@@ -16,57 +15,84 @@ export async function GET(
       );
     }
 
-    // 读取分享记录
-    const sharesDir = join(process.cwd(), 'shares');
-    const sharePath = join(sharesDir, `${id}.json`);
+    // 从 Supabase 获取分享记录
+    const { data: share, error: shareError } = await supabase
+      .from('shares')
+      .select('*')
+      .eq('id', id)
+      .single();
 
-    try {
-      const shareData = JSON.parse(await readFile(sharePath, 'utf-8'));
-
-      // 检查是否过期
-      if (new Date(shareData.expire_at) < new Date()) {
-        return NextResponse.json(
-          { success: false, error: '分享链接已过期' },
-          { status: 410 }
-        );
-      }
-
-      // 增加访问次数
-      shareData.access_count += 1;
-      await writeFile(sharePath, JSON.stringify(shareData, null, 2));
-
-      // 读取目标内容
-      const targetDir = shareData.type === 'outline' ? 'outlines' : 'quizzes';
-      const targetPath = join(process.cwd(), targetDir, `${shareData.target_id}.json`);
-
-      try {
-        const targetData = JSON.parse(await readFile(targetPath, 'utf-8'));
-
-        return NextResponse.json({
-          success: true,
-          data: {
-            type: shareData.type,
-            content: targetData,
-            share_info: {
-              created_at: shareData.created_at,
-              expire_at: shareData.expire_at,
-              access_count: shareData.access_count,
-            }
-          }
-        });
-      } catch (error) {
-        return NextResponse.json(
-          { success: false, error: '内容不存在' },
-          { status: 404 }
-        );
-      }
-
-    } catch (error) {
+    if (shareError || !share) {
       return NextResponse.json(
         { success: false, error: '分享链接不存在' },
         { status: 404 }
       );
     }
+
+    // 检查是否过期
+    if (new Date(share.expire_at) < new Date()) {
+      return NextResponse.json(
+        { success: false, error: '分享链接已过期' },
+        { status: 410 }
+      );
+    }
+
+    // 增加访问次数
+    await supabase
+      .from('shares')
+      .update({ access_count: share.access_count + 1 })
+      .eq('id', id);
+
+    // 获取目标内容
+    const table = share.type === 'outline' ? 'outlines' : 'quizzes';
+    const { data: target, error: targetError } = await supabase
+      .from(table)
+      .select('*')
+      .eq('id', share.target_id)
+      .single();
+
+    if (targetError || !target) {
+      return NextResponse.json(
+        { success: false, error: '内容不存在' },
+        { status: 404 }
+      );
+    }
+
+    // 转换字段名以保持兼容
+    let content = target;
+    if (share.type === 'outline') {
+      content = {
+        outline_id: target.id,
+        file_id: target.file_name,
+        style: 'exam_focus',
+        course: target.course,
+        content: target.content,
+        created_at: target.created_at,
+      };
+    } else {
+      content = {
+        quiz_id: target.id,
+        title: target.title,
+        source: target.source,
+        questions: target.questions,
+        chapters: target.chapters,
+        stats: target.stats,
+        created_at: target.created_at,
+      };
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        type: share.type,
+        content: content,
+        share_info: {
+          created_at: share.created_at,
+          expire_at: share.expire_at,
+          access_count: share.access_count + 1,
+        }
+      }
+    });
 
   } catch (error) {
     console.error('获取分享内容失败:', error);

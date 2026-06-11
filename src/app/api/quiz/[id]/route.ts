@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readFile } from 'fs/promises';
-import { join } from 'path';
+import { supabase } from '@/lib/supabase';
 
 export async function GET(
   request: NextRequest,
@@ -19,43 +18,42 @@ export async function GET(
       );
     }
 
-    // 读取题库
-    const quizzesDir = join(process.cwd(), 'quizzes');
-    const quizPath = join(quizzesDir, `${id}.json`);
+    // 从 Supabase 获取题库
+    const { data: quiz, error } = await supabase
+      .from('quizzes')
+      .select('*')
+      .eq('id', id)
+      .single();
 
-    try {
-      const data = await readFile(quizPath, 'utf-8');
-      const quiz = JSON.parse(data);
-
-      // 过滤题目
-      let questions = quiz.questions;
-
-      if (chapter) {
-        questions = questions.filter((q: any) => q.chapter === chapter);
-      }
-
-      if (type) {
-        questions = questions.filter((q: any) => q.type === type);
-      }
-
-      return NextResponse.json({
-        success: true,
-        data: {
-          quiz_id: quiz.quiz_id,
-          title: quiz.title,
-          total: questions.length,
-          questions: questions,
-          chapters: quiz.chapters,
-          stats: quiz.stats,
-        }
-      });
-
-    } catch (error) {
+    if (error || !quiz) {
       return NextResponse.json(
         { success: false, error: '题库不存在' },
         { status: 404 }
       );
     }
+
+    // 过滤题目
+    let questions = quiz.questions || [];
+
+    if (chapter) {
+      questions = questions.filter((q: any) => q.chapter === chapter);
+    }
+
+    if (type) {
+      questions = questions.filter((q: any) => q.type === type);
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        quiz_id: quiz.id,
+        title: quiz.title,
+        total: questions.length,
+        questions: questions,
+        chapters: quiz.chapters || [],
+        stats: quiz.stats || {},
+      }
+    });
 
   } catch (error) {
     console.error('获取题库失败:', error);

@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readFile, writeFile, mkdir } from 'fs/promises';
-import { join } from 'path';
-import { v4 as uuidv4 } from 'uuid';
+import { supabase } from '@/lib/supabase';
 
 interface Question {
   id: number;
@@ -16,12 +14,11 @@ interface Question {
 }
 
 // AI生成题目
-async function generateQuestions(outlineContent: any, count: number, types: string[]): Promise<Question[]> {
+async function generateQuestions(outlineContent: any, count: number): Promise<Question[]> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   const baseUrl = process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com';
 
   if (!apiKey) {
-    // 如果没有配置API Key，返回模拟数据
     return generateMockQuestions(outlineContent, count);
   }
 
@@ -88,28 +85,19 @@ ${JSON.stringify(outlineContent, null, 2).substring(0, 6000)}
     body: JSON.stringify({
       model: 'mimo-v2.5-pro',
       max_tokens: 4096,
-      messages: [
-        {
-          role: 'user',
-          content: prompt
-        }
-      ],
+      messages: [{ role: 'user', content: prompt }],
       temperature: 0.7,
     }),
   });
 
   if (!response.ok) {
-    const errorText = await response.text();
-    console.error('Claude API错误:', errorText);
     throw new Error('AI API调用失败');
   }
 
   const data = await response.json();
   const content = data.content[0].text;
 
-  // 尝试提取JSON
   try {
-    // 如果返回的是markdown代码块，提取其中的JSON
     const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (jsonMatch) {
       const result = JSON.parse(jsonMatch[1]);
@@ -172,7 +160,7 @@ function generateMockQuestions(outlineContent: any, count: number): Question[] {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { outline_id, count = 20, types = ['single', 'multi', 'judge'] } = body;
+    const { outline_id, count = 20 } = body;
 
     if (!outline_id) {
       return NextResponse.json(
@@ -181,14 +169,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 读取提纲
-    const outlinesDir = join(process.cwd(), 'outlines');
-    const outlinePath = join(outlinesDir, `${outline_id}.json`);
+    // 从 Supabase 获取提纲
+    const { data: outlineData, error: outlineError } = await supabase
+      .from('outlines')
+      .select('content, title')
+      .eq('id', outline_id)
+      .single();
 
-    let outlineData;
-    try {
-      outlineData = JSON.parse(await readFile(outlinePath, 'utf-8'));
-    } catch (error) {
+    if (outlineError || !outlineData) {
       return NextResponse.json(
         { success: false, error: '提纲不存在' },
         { status: 404 }
@@ -196,10 +184,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 生成题目
-    const questions = await generateQuestions(outlineData.content, count, types);
-
-    // 生成题库ID
-    const quizId = uuidv4();
+    const questions = await generateQuestions(outlineData.content, count);
 
     // 统计信息
     const chapters = [...new Set(questions.map(q => q.chapter))];
@@ -210,27 +195,32 @@ export async function POST(request: NextRequest) {
       judge: questions.filter(q => q.type === 'judge').length,
     };
 
-    // 保存题库
-    const quizData = {
-      quiz_id: quizId,
-      outline_id: outline_id,
-      title: `${outlineData.content.title} - 练习题`,
-      source: 'ai_generated',
-      questions: questions,
-      chapters: chapters,
-      stats: stats,
-      created_at: new Date().toISOString(),
-    };
+    // 保存到 Supabase
+    const { data: savedQuiz, error: saveError } = await supabase
+      .from('quizzes')
+      .insert({
+        title: `${outlineData.title} - 练习题`,
+        source: 'ai_generated',
+        questions: questions,
+        chapters: chapters,
+        stats: stats,
+      })
+      .select('id')
+      .single();
 
-    const quizzesDir = join(process.cwd(), 'quizzes');
-    await mkdir(quizzesDir, { recursive: true });
-    await writeFile(join(quizzesDir, `${quizId}.json`), JSON.stringify(quizData, null, 2));
+    if (saveError) {
+      console.error('保存题库失败:', saveError);
+      return NextResponse.json(
+        { success: false, error: '保存题库失败' },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({
       success: true,
       data: {
-        quiz_id: quizId,
-        title: quizData.title,
+        quiz_id: savedQuiz.id,
+        title: `${outlineData.title} - 练习题`,
         stats: stats,
       }
     });

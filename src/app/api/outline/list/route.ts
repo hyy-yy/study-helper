@@ -1,49 +1,33 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { readdir, readFile } from 'fs/promises';
-import { join } from 'path';
+import { NextResponse } from 'next/server';
+import { supabase } from '@/lib/supabase';
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
-    const outlinesDir = join(process.cwd(), 'outlines');
+    const { data, error } = await supabase
+      .from('outlines')
+      .select('id, title, course, created_at')
+      .order('created_at', { ascending: false });
 
-    try {
-      const files = await readdir(outlinesDir);
-      const jsonFiles = files.filter(f => f.endsWith('.json'));
-
-      const outlines = await Promise.all(
-        jsonFiles.map(async (file) => {
-          try {
-            const data = await readFile(join(outlinesDir, file), 'utf-8');
-            const outline = JSON.parse(data);
-            return {
-              outline_id: outline.outline_id,
-              title: outline.content?.title || '未命名提纲',
-              course: outline.course || '未分类',
-              created_at: outline.created_at,
-            };
-          } catch (error) {
-            return null;
-          }
-        })
+    if (error) {
+      console.error('获取提纲列表失败:', error);
+      return NextResponse.json(
+        { success: false, error: '获取提纲列表失败' },
+        { status: 500 }
       );
-
-      // 过滤掉无效数据并按时间排序
-      const validOutlines = outlines
-        .filter((item): item is NonNullable<typeof item> => item !== null)
-        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-
-      return NextResponse.json({
-        success: true,
-        data: validOutlines,
-      });
-
-    } catch (error) {
-      // 目录不存在或为空
-      return NextResponse.json({
-        success: true,
-        data: [],
-      });
     }
+
+    // 转换字段名以保持兼容
+    const outlines = data.map(item => ({
+      outline_id: item.id,
+      title: item.title,
+      course: item.course || '未分类',
+      created_at: item.created_at,
+    }));
+
+    return NextResponse.json({
+      success: true,
+      data: outlines,
+    });
 
   } catch (error) {
     console.error('获取提纲列表失败:', error);

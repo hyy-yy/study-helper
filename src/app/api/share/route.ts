@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { writeFile, readFile, mkdir } from 'fs/promises';
-import { join } from 'path';
+import { supabase } from '@/lib/supabase';
 import { v4 as uuidv4 } from 'uuid';
 
 export async function POST(request: NextRequest) {
@@ -24,12 +23,14 @@ export async function POST(request: NextRequest) {
     }
 
     // 验证目标是否存在
-    const targetDir = type === 'outline' ? 'outlines' : 'quizzes';
-    const targetPath = join(process.cwd(), targetDir, `${id}.json`);
+    const table = type === 'outline' ? 'outlines' : 'quizzes';
+    const { data: target, error: targetError } = await supabase
+      .from(table)
+      .select('id')
+      .eq('id', id)
+      .single();
 
-    try {
-      await readFile(targetPath);
-    } catch (error) {
+    if (targetError || !target) {
       return NextResponse.json(
         { success: false, error: '目标不存在' },
         { status: 404 }
@@ -43,19 +44,24 @@ export async function POST(request: NextRequest) {
     const expireAt = new Date();
     expireAt.setDate(expireAt.getDate() + expire_days);
 
-    // 保存分享记录
-    const shareData = {
-      share_id: shareId,
-      type: type,
-      target_id: id,
-      expire_at: expireAt.toISOString(),
-      created_at: new Date().toISOString(),
-      access_count: 0,
-    };
+    // 保存到 Supabase
+    const { error: saveError } = await supabase
+      .from('shares')
+      .insert({
+        id: shareId,
+        type: type,
+        target_id: id,
+        expire_at: expireAt.toISOString(),
+        access_count: 0,
+      });
 
-    const sharesDir = join(process.cwd(), 'shares');
-    await mkdir(sharesDir, { recursive: true });
-    await writeFile(join(sharesDir, `${shareId}.json`), JSON.stringify(shareData, null, 2));
+    if (saveError) {
+      console.error('保存分享记录失败:', saveError);
+      return NextResponse.json(
+        { success: false, error: '保存分享记录失败' },
+        { status: 500 }
+      );
+    }
 
     // 生成分享URL - 自动检测当前域名
     const protocol = request.headers.get('x-forwarded-proto') || 'https';

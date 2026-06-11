@@ -1,50 +1,34 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { readdir, readFile } from 'fs/promises';
-import { join } from 'path';
+import { NextResponse } from 'next/server';
+import { supabase } from '@/lib/supabase';
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
-    const quizzesDir = join(process.cwd(), 'quizzes');
+    const { data, error } = await supabase
+      .from('quizzes')
+      .select('id, title, source, stats, created_at')
+      .order('created_at', { ascending: false });
 
-    try {
-      const files = await readdir(quizzesDir);
-      const jsonFiles = files.filter(f => f.endsWith('.json'));
-
-      const quizzes = await Promise.all(
-        jsonFiles.map(async (file) => {
-          try {
-            const data = await readFile(join(quizzesDir, file), 'utf-8');
-            const quiz = JSON.parse(data);
-            return {
-              quiz_id: quiz.quiz_id,
-              title: quiz.title,
-              source: quiz.source,
-              stats: quiz.stats,
-              created_at: quiz.created_at,
-            };
-          } catch (error) {
-            return null;
-          }
-        })
+    if (error) {
+      console.error('获取题库列表失败:', error);
+      return NextResponse.json(
+        { success: false, error: '获取题库列表失败' },
+        { status: 500 }
       );
-
-      // 过滤掉无效数据并按时间排序
-      const validQuizzes = quizzes
-        .filter((item): item is NonNullable<typeof item> => item !== null)
-        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-
-      return NextResponse.json({
-        success: true,
-        data: validQuizzes,
-      });
-
-    } catch (error) {
-      // 目录不存在或为空
-      return NextResponse.json({
-        success: true,
-        data: [],
-      });
     }
+
+    // 转换字段名以保持兼容
+    const quizzes = data.map(item => ({
+      quiz_id: item.id,
+      title: item.title,
+      source: item.source,
+      stats: item.stats,
+      created_at: item.created_at,
+    }));
+
+    return NextResponse.json({
+      success: true,
+      data: quizzes,
+    });
 
   } catch (error) {
     console.error('获取题库列表失败:', error);

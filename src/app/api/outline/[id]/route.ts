@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readFile } from 'fs/promises';
-import { join } from 'path';
+import { supabase } from '@/lib/supabase';
 
 export async function GET(
   request: NextRequest,
@@ -9,31 +8,33 @@ export async function GET(
   try {
     const { id } = await params;
 
-    if (!id) {
-      return NextResponse.json(
-        { success: false, error: '缺少提纲ID' },
-        { status: 400 }
-      );
-    }
+    const { data, error } = await supabase
+      .from('outlines')
+      .select('*')
+      .eq('id', id)
+      .single();
 
-    // 读取提纲文件
-    const outlinesDir = join(process.cwd(), 'outlines');
-    const filePath = join(outlinesDir, `${id}.json`);
-
-    try {
-      const data = await readFile(filePath, 'utf-8');
-      const outline = JSON.parse(data);
-
-      return NextResponse.json({
-        success: true,
-        data: outline
-      });
-    } catch (error) {
+    if (error || !data) {
       return NextResponse.json(
         { success: false, error: '提纲不存在' },
         { status: 404 }
       );
     }
+
+    // 转换字段名以保持兼容
+    const outline = {
+      outline_id: data.id,
+      file_id: data.file_name,
+      style: 'exam_focus',
+      course: data.course,
+      content: data.content,
+      created_at: data.created_at,
+    };
+
+    return NextResponse.json({
+      success: true,
+      data: outline,
+    });
 
   } catch (error) {
     console.error('获取提纲失败:', error);
