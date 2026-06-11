@@ -7,7 +7,8 @@ export default function Home() {
   const [stats, setStats] = useState({
     outlines: 0,
     questions: 0,
-    quizzes: 0
+    quizzes: 0,
+    courses: 0
   });
 
   useEffect(() => {
@@ -33,18 +34,22 @@ export default function Home() {
         {/* 统计卡片 */}
         <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
           <h3 className="text-gray-500 text-sm mb-4">学习统计</h3>
-          <div className="grid grid-cols-3 gap-4 text-center">
+          <div className="grid grid-cols-4 gap-4 text-center">
             <div>
-              <div className="text-3xl font-bold text-blue-600">{stats.outlines}</div>
+              <div className="text-2xl font-bold text-blue-600">{stats.outlines}</div>
               <div className="text-gray-500 text-xs mt-1">份提纲</div>
             </div>
             <div>
-              <div className="text-3xl font-bold text-green-600">{stats.questions}</div>
+              <div className="text-2xl font-bold text-green-600">{stats.questions}</div>
               <div className="text-gray-500 text-xs mt-1">道题目</div>
             </div>
             <div>
-              <div className="text-3xl font-bold text-purple-600">{stats.quizzes}</div>
+              <div className="text-2xl font-bold text-purple-600">{stats.quizzes}</div>
               <div className="text-gray-500 text-xs mt-1">次刷题</div>
+            </div>
+            <div>
+              <div className="text-2xl font-bold text-indigo-600">{stats.courses}</div>
+              <div className="text-gray-500 text-xs mt-1">门课程</div>
             </div>
           </div>
         </div>
@@ -60,6 +65,20 @@ export default function Home() {
                 <div>
                   <h2 className="text-xl font-semibold text-gray-800">上传复习资料</h2>
                   <p className="text-gray-500 text-sm">支持 PPT、Word 文档</p>
+                </div>
+              </div>
+            </div>
+          </Link>
+
+          <Link href="/courses" className="block">
+            <div className="bg-white rounded-2xl shadow-lg p-6 hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 bg-indigo-100 rounded-xl flex items-center justify-center">
+                  <span className="text-3xl">📚</span>
+                </div>
+                <div>
+                  <h2 className="text-xl font-semibold text-gray-800">我的课程</h2>
+                  <p className="text-gray-500 text-sm">按课程查看资料</p>
                 </div>
               </div>
             </div>
@@ -101,6 +120,11 @@ export default function Home() {
             <Link href="/upload" className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
               <span className="text-blue-500">📄</span>
               <span className="text-gray-700">上传一份复习资料</span>
+              <span className="ml-auto text-gray-400">→</span>
+            </Link>
+            <Link href="/courses" className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
+              <span className="text-indigo-500">📚</span>
+              <span className="text-gray-700">查看我的课程</span>
               <span className="ml-auto text-gray-400">→</span>
             </Link>
             <Link href="/quiz/upload" className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
