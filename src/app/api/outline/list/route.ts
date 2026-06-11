@@ -18,6 +18,7 @@ export async function GET(request: NextRequest) {
             return {
               outline_id: outline.outline_id,
               title: outline.content?.title || '未命名提纲',
+              course: outline.course || '未分类',
               created_at: outline.created_at,
             };
           } catch (error) {

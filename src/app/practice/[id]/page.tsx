@@ -61,11 +61,50 @@ export default function PracticePage() {
     }
   };
 
-  const currentQuestion = quiz?.questions[currentIndex];
+  const currentQuestion = quiz?.questions?.[currentIndex];
 
   const handleSelectAnswer = (answer: string) => {
     if (showResult) return;
     setSelectedAnswer(answer);
+  };
+
+  const saveWrongAnswer = (question: Question, userAnswer: string) => {
+    try {
+      const saved = localStorage.getItem('study-helper-wrong-answers');
+      const wrongAnswers = saved ? JSON.parse(saved) : [];
+
+      // 检查是否已存在
+      const existingIndex = wrongAnswers.findIndex(
+        (w: any) => w.question === question.question && w.quizId === params.id
+      );
+
+      if (existingIndex >= 0) {
+        // 更新错题次数
+        wrongAnswers[existingIndex].wrongCount += 1;
+        wrongAnswers[existingIndex].userAnswer = userAnswer;
+        wrongAnswers[existingIndex].lastWrongTime = new Date().toISOString();
+      } else {
+        // 添加新错题
+        wrongAnswers.push({
+          id: Date.now(),
+          quizId: params.id,
+          quizTitle: quiz?.title || '未知题库',
+          question: question.question,
+          type: question.type,
+          options: question.options,
+          correctAnswer: question.answer,
+          userAnswer: userAnswer,
+          explanation: question.explanation,
+          chapter: question.chapter,
+          wrongCount: 1,
+          lastWrongTime: new Date().toISOString(),
+        });
+      }
+
+      localStorage.setItem('study-helper-wrong-answers', JSON.stringify(wrongAnswers));
+    } catch (error) {
+      console.error('保存错题失败:', error);
+    }
   };
 
   const handleSubmit = () => {
@@ -79,6 +118,7 @@ export default function PracticePage() {
       setCorrectCount(prev => prev + 1);
     } else {
       setWrongQuestions(prev => [...prev, currentQuestion.id]);
+      saveWrongAnswer(currentQuestion, selectedAnswer);
     }
   };
 

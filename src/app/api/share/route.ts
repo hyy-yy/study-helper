@@ -57,8 +57,10 @@ export async function POST(request: NextRequest) {
     await mkdir(sharesDir, { recursive: true });
     await writeFile(join(sharesDir, `${shareId}.json`), JSON.stringify(shareData, null, 2));
 
-    // 生成分享URL
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+    // 生成分享URL - 自动检测当前域名
+    const protocol = request.headers.get('x-forwarded-proto') || 'https';
+    const host = request.headers.get('host') || process.env.NEXT_PUBLIC_BASE_URL || 'localhost:3000';
+    const baseUrl = `${protocol}://${host}`;
     const shareUrl = `${baseUrl}/share/${shareId}`;
 
     return NextResponse.json({

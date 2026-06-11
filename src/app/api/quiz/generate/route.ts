@@ -86,7 +86,7 @@ ${JSON.stringify(outlineContent, null, 2).substring(0, 6000)}
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-3-haiku-20240307',
+      model: 'mimo-v2.5-pro',
       max_tokens: 4096,
       messages: [
         {

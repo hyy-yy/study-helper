@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
+import * as mammoth from 'mammoth';
 
 interface Question {
   id: number;
@@ -50,6 +51,140 @@ function validateQuestions(data: any): Question[] {
   });
 }
 
+// 从 Word 文档中解析题目
+async function parseQuestionsFromWord(buffer: Buffer): Promise<Question[]> {
+  const result = await mammoth.extractRawText({ buffer });
+  const text = result.value;
+  const questions: Question[] = [];
+
+  // 按行分割文本
+  const lines = text.split('\n').map(line => line.trim()).filter(line => line);
+
+  let currentQuestion: Partial<Question> | null = null;
+  let currentOptions: { key: string; value: string }[] = [];
+  let questionId = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // 检测题目开始（支持多种格式）
+    // 格式1: 1. 题目内容
+    // 格式2: 1、题目内容
+    // 格式3: 题目1: 内容
+    // 格式4: (1) 内容
+    const questionMatch = line.match(/^(?:(\d+)[.、)）]\s*|题目\s*(\d+)\s*[:：]\s*|[(（](\d+)[)）]\s*)(.+)/);
+
+    if (questionMatch) {
+      // 保存上一题
+      if (currentQuestion && currentQuestion.question) {
+        questions.push({
+          id: ++questionId,
+          type: currentQuestion.type || 'single',
+          question: currentQuestion.question,
+          options: currentOptions.length > 0 ? currentOptions : undefined,
+          answer: currentQuestion.answer || 'A',
+          chapter: currentQuestion.chapter || '未分类',
+          difficulty: currentQuestion.difficulty || 'medium',
+          explanation: currentQuestion.explanation,
+        });
+      }
+
+      // 开始新题目
+      const questionText = questionMatch[4];
+      currentQuestion = {
+        question: questionText,
+        type: 'single',
+        answer: 'A',
+      };
+      currentOptions = [];
+
+      // 检测题型
+      if (line.includes('[多选]') || line.includes('（多选）') || line.includes('(多选)')) {
+        currentQuestion.type = 'multi';
+      } else if (line.includes('[判断]') || line.includes('（判断）') || line.includes('(判断)') ||
+                 line.includes('正确') || line.includes('错误') || line.includes('对') || line.includes('错')) {
+        currentQuestion.type = 'judge';
+      }
+
+      continue;
+    }
+
+    // 检测选项（支持 A. A、 A) 等格式）
+    const optionMatch = line.match(/^([A-Da-d])[.、)）]\s*(.+)/);
+    if (optionMatch && currentQuestion) {
+      const key = optionMatch[1].toUpperCase();
+      const value = optionMatch[2];
+      currentOptions.push({ key, value });
+      continue;
+    }
+
+    // 检测答案（支持多种格式）
+    const answerMatch = line.match(/^(?:答案|正确答案|答)[:：]\s*(.+)/i);
+    if (answerMatch && currentQuestion) {
+      const rawAnswer = answerMatch[1].trim();
+
+      // 判断题答案转换（优先处理）
+      if (currentQuestion.type === 'judge') {
+        if (['正确', '对', 'TRUE', 'T', '√', '是'].includes(rawAnswer) ||
+            rawAnswer.toUpperCase() === 'TRUE') {
+          currentQuestion.answer = 'true';
+        } else if (['错误', '错', 'FALSE', 'F', '×', '否'].includes(rawAnswer) ||
+                   rawAnswer.toUpperCase() === 'FALSE') {
+          currentQuestion.answer = 'false';
+        } else {
+          // 默认根据内容判断
+          currentQuestion.answer = 'true';
+        }
+      } else {
+        // 选择题答案处理
+        const answer = rawAnswer.toUpperCase();
+        // 处理多选答案
+        if (answer.includes(',') || answer.includes('、') || answer.includes(' ')) {
+          currentQuestion.answer = answer.replace(/[,、\s]+/g, '').split('').sort().join('');
+        } else {
+          // 单选题，只取第一个字母
+          currentQuestion.answer = answer.charAt(0);
+        }
+      }
+      continue;
+    }
+
+    // 检测解析
+    const explanationMatch = line.match(/^(?:解析|解释|说明)[:：]\s*(.+)/);
+    if (explanationMatch && currentQuestion) {
+      currentQuestion.explanation = explanationMatch[1];
+      continue;
+    }
+
+    // 检测章节
+    const chapterMatch = line.match(/^(?:章节|章|节|单元)[:：]\s*(.+)/);
+    if (chapterMatch && currentQuestion) {
+      currentQuestion.chapter = chapterMatch[1];
+      continue;
+    }
+  }
+
+  // 保存最后一题
+  if (currentQuestion && currentQuestion.question) {
+    questions.push({
+      id: ++questionId,
+      type: currentQuestion.type || 'single',
+      question: currentQuestion.question,
+      options: currentOptions.length > 0 ? currentOptions : undefined,
+      answer: currentQuestion.answer || 'A',
+      chapter: currentQuestion.chapter || '未分类',
+      difficulty: currentQuestion.difficulty || 'medium',
+      explanation: currentQuestion.explanation,
+    });
+  }
+
+  if (questions.length === 0) {
+    throw new Error('未能从文档中识别出题目，请检查文档格式');
+  }
+
+  return questions;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
@@ -62,41 +197,60 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 验证文件类型
-    const allowedTypes = [
+    // 验证文件类型 - 支持 JSON、Word、Excel、CSV
+    const allowedMimeTypes = [
       'application/json',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
+      'application/msword', // .doc
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'application/vnd.ms-excel',
       'text/csv',
     ];
 
-    if (!allowedTypes.includes(file.type)) {
+    const allowedExtensions = ['.json', '.docx', '.doc', '.xlsx', '.xls', '.csv'];
+    const fileExt = '.' + file.name.split('.').pop()?.toLowerCase();
+
+    if (!allowedMimeTypes.includes(file.type) && !allowedExtensions.includes(fileExt)) {
       return NextResponse.json(
-        { success: false, error: '只支持 JSON、Excel、CSV 格式' },
+        { success: false, error: '只支持 JSON、Word、Excel、CSV 格式' },
         { status: 400 }
       );
     }
 
-    // 验证文件大小（5MB）
-    if (file.size > 5 * 1024 * 1024) {
+    // 验证文件大小（10MB，Word 文档可能较大）
+    if (file.size > 10 * 1024 * 1024) {
       return NextResponse.json(
-        { success: false, error: '文件大小不能超过 5MB' },
+        { success: false, error: '文件大小不能超过 10MB' },
         { status: 400 }
       );
     }
 
-    // 读取文件内容
-    const text = await file.text();
     let questions: Question[];
 
-    try {
-      const data = JSON.parse(text);
-      questions = validateQuestions(data);
-    } catch (error) {
-      return NextResponse.json(
-        { success: false, error: `文件格式错误: ${error instanceof Error ? error.message : '未知错误'}` },
-        { status: 400 }
-      );
+    // 根据文件类型处理
+    if (fileExt === '.docx' || fileExt === '.doc') {
+      // Word 文档处理
+      try {
+        const buffer = Buffer.from(await file.arrayBuffer());
+        questions = await parseQuestionsFromWord(buffer);
+      } catch (error) {
+        return NextResponse.json(
+          { success: false, error: `Word 文档解析失败: ${error instanceof Error ? error.message : '未知错误'}` },
+          { status: 400 }
+        );
+      }
+    } else {
+      // JSON 文件处理
+      try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+        questions = validateQuestions(data);
+      } catch (error) {
+        return NextResponse.json(
+          { success: false, error: `文件格式错误: ${error instanceof Error ? error.message : '未知错误'}` },
+          { status: 400 }
+        );
+      }
     }
 
     // 生成题库ID

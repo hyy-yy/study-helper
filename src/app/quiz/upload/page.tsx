@@ -11,22 +11,18 @@ export default function QuizUploadPage() {
   const [success, setSuccess] = useState(false);
 
   const handleUpload = async (file: File) => {
-    // 验证文件类型
-    const allowedTypes = [
-      'application/json',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'application/vnd.ms-excel',
-      'text/csv',
-    ];
+    // 验证文件类型 - 支持 JSON、Word、Excel、CSV
+    const allowedExtensions = ['.json', '.docx', '.doc', '.xlsx', '.xls', '.csv'];
+    const fileExt = '.' + file.name.split('.').pop()?.toLowerCase();
 
-    if (!allowedTypes.includes(file.type)) {
-      setError('只支持 JSON、Excel、CSV 格式的文件');
+    if (!allowedExtensions.includes(fileExt)) {
+      setError('只支持 JSON、Word、Excel、CSV 格式的文件');
       return;
     }
 
-    // 验证文件大小（5MB）
-    if (file.size > 5 * 1024 * 1024) {
-      setError('文件大小不能超过 5MB');
+    // 验证文件大小（10MB）
+    if (file.size > 10 * 1024 * 1024) {
+      setError('文件大小不能超过 10MB');
       return;
     }
 
@@ -112,11 +108,11 @@ export default function QuizUploadPage() {
                 >
                   <div className="text-6xl mb-4">📋</div>
                   <h3 className="text-lg font-semibold text-gray-700 mb-2">选择题库文件</h3>
-                  <p className="text-gray-500 text-sm mb-4">支持 JSON、Excel、CSV 格式</p>
+                  <p className="text-gray-500 text-sm mb-4">支持 JSON、Word、Excel、CSV 格式</p>
                   <div className="inline-block bg-green-100 text-green-600 px-4 py-2 rounded-lg text-sm">
                     点击选择文件
                   </div>
-                  <p className="text-gray-400 text-xs mt-4">最大 5MB</p>
+                  <p className="text-gray-400 text-xs mt-4">最大 10MB</p>
                 </div>
               )}
             </div>
@@ -132,7 +128,7 @@ export default function QuizUploadPage() {
             <input
               ref={fileInputRef}
               type="file"
-              accept=".json,.xlsx,.xls,.csv"
+              accept=".json,.docx,.doc,.xlsx,.xls,.csv"
               onChange={handleFileChange}
               className="hidden"
             />
@@ -142,6 +138,24 @@ export default function QuizUploadPage() {
               <h3 className="font-semibold text-gray-700 mb-4">📋 题库格式说明</h3>
 
               <div className="space-y-4">
+                <div>
+                  <h4 className="text-sm font-medium text-gray-600 mb-2">Word 文档格式：</h4>
+                  <pre className="bg-gray-50 p-3 rounded-lg text-xs overflow-x-auto">
+{`1. 题目内容？
+A. 选项A
+B. 选项B
+C. 选项C
+D. 选项D
+答案：A
+解析：这是解析说明
+
+2. 这道判断题正确吗？
+答案：正确
+解析：这是解析说明`}
+                  </pre>
+                  <p className="text-xs text-gray-500 mt-2">支持多种格式：1. 1、 (1) 题目1: 等</p>
+                </div>
+
                 <div>
                   <h4 className="text-sm font-medium text-gray-600 mb-2">JSON 格式示例：</h4>
                   <pre className="bg-gray-50 p-3 rounded-lg text-xs overflow-x-auto">
